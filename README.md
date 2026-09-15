@@ -81,6 +81,19 @@ new Codex session instead of guessing with `--last`.
 sh test/run.sh
 ```
 
+For a real local smoke test that starts two fresh interactive Codex panes in
+one directory, use the included isolated Zellij configuration. It does not
+modify your normal Zellij configuration:
+
+```sh
+zellij --config test/zellij-smoke.config.kdl \
+  --session codex-zellij-smoke --layout test/zellij-smoke.kdl
+```
+
+Quit the test session, then attach to it again with the same command and
+`--force-run-commands` to verify both panes resume independently. Delete the
+test session afterwards with `zellij delete-session codex-zellij-smoke`.
+
 ## License
 
 [MIT](LICENSE)

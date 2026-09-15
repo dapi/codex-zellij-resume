@@ -1,0 +1,2 @@
+session_serialization true
+post_command_discovery_hook "~/.local/bin/zellij-codex-resurrect"

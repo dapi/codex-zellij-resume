@@ -1,0 +1,4 @@
+layout {
+    pane command="codex-zellij"
+    pane command="codex-zellij"
+}
