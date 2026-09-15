@@ -24,10 +24,16 @@ first_command() {
 # wrapped. This avoids creating meaningless marker files for administration
 # and one-shot commands.
 case "$(first_command "$@")" in
-  exec|e|review|login|logout|mcp|mcp-server|app-server|completion|sandbox|debug|apply|a|cloud|features|help)
+  exec|e|review|login|logout|mcp|mcp-server|app-server|completion|sandbox|debug|apply|a|cloud|features|help|resume|fork)
     exec "$CODEX_BIN" "$@"
     ;;
 esac
+
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help|-V|--version) exec "$CODEX_BIN" "$@" ;;
+  esac
+done
 
 MARKER=""
 if [ "${1:-}" = "--zellij-marker" ] && [ -n "${2:-}" ]; then
