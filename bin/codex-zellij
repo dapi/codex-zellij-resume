@@ -101,13 +101,13 @@ acquire_lock
 printf '%s %s\n' "$$" "$MARKER" > "$LOCK_DIR/owner"
 BEFORE="$(line_count)"
 TARGET_LINE=$((BEFORE + 1))
+WRAPPER_PID="$$"
 
 # Keep registration serialized until the exact next index record appears.
 # Codex exposes no pane or process identifier in session_index.jsonl, so this
 # small critical section is what makes same-directory panes unambiguous.
 (
-  attempt=0
-  while [ "$attempt" -lt 60 ]; do
+  while kill -0 "$WRAPPER_PID" 2>/dev/null; do
     CURRENT="$(line_count)"
     if [ "$CURRENT" -ge "$TARGET_LINE" ]; then
       SESSION_ID="$(sed -n "${TARGET_LINE}p" "$INDEX_FILE" 2>/dev/null | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
@@ -118,7 +118,6 @@ TARGET_LINE=$((BEFORE + 1))
       fi
       break
     fi
-    attempt=$((attempt + 1))
     sleep 1
   done
   release_lock

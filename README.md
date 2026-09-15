@@ -63,6 +63,9 @@ given account while using this tool; a concurrent bare `codex` launch can
 otherwise enter the same index between the wrapper's snapshot and Codex's
 record.
 
+The registration watcher waits until the first message creates the Codex
+session record; it does not expire while the interactive pane is still open.
+
 If a crash happens before Codex has written its index record, the pane starts a
 new Codex session instead of guessing with `--last`.
 
