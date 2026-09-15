@@ -1,0 +1,36 @@
+#!/bin/sh
+# Translate a serialized codex-zellij command into a precise Codex resume.
+set -eu
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/codex-zellij-resume"
+MARKER_DIR="$STATE_DIR/markers"
+COMMAND="${RESURRECT_COMMAND:-}"
+
+# Leave commands not started through codex-zellij untouched. In particular, we
+# never turn a bare `codex` into `codex resume --last`: that is unsafe when two
+# panes use the same directory.
+case "$COMMAND" in
+  *--zellij-marker*) ;;
+  *) printf '%s\n' "$COMMAND"; exit 0 ;;
+esac
+
+MARKER="$(printf '%s\n' "$COMMAND" | sed -n 's/.*--zellij-marker[[:space:]]\{1,\}\([A-Za-z0-9-][A-Za-z0-9-]*\).*/\1/p' | head -n 1)"
+case "$MARKER" in
+  *[!A-Za-z0-9-]*|'') printf '%s\n' "$COMMAND"; exit 0 ;;
+esac
+
+MARKER_FILE="$MARKER_DIR/$MARKER"
+if [ ! -s "$MARKER_FILE" ]; then
+  # The first launch may have crashed before Codex wrote an index record. A
+  # new session is safer than resuming a possibly unrelated "last" session.
+  printf '%s\n' 'codex --no-alt-screen'
+  exit 0
+fi
+
+SESSION_ID="$(tr -d '\r\n' < "$MARKER_FILE")"
+if [ -z "$SESSION_ID" ]; then
+  printf '%s\n' 'codex --no-alt-screen'
+  exit 0
+fi
+
+printf 'codex resume %s --no-alt-screen\n' "$SESSION_ID"

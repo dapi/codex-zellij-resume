@@ -1,0 +1,138 @@
+#!/bin/sh
+# Start an interactive Codex session that Zellij can resurrect precisely.
+set -eu
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/codex-zellij-resume"
+MARKER_DIR="$STATE_DIR/markers"
+LOCK_DIR="$STATE_DIR/registration.lock"
+INDEX_FILE="${CODEX_HOME:-$HOME/.codex}/session_index.jsonl"
+CODEX_BIN="${CODEX_BIN:-codex}"
+
+usage() {
+  printf '%s\n' 'usage: codex-zellij [codex arguments]'
+}
+
+first_command() {
+  for arg in "$@"; do
+    case "$arg" in
+      --) return 0 ;;
+      -*) ;;
+      *) printf '%s\n' "$arg"; return 0 ;;
+    esac
+  done
+}
+
+# Commands that cannot create an interactive session are deliberately not
+# wrapped. This avoids creating meaningless marker files for administration
+# and one-shot commands.
+case "$(first_command "$@")" in
+  exec|e|review|login|logout|mcp|mcp-server|app-server|completion|sandbox|debug|apply|a|cloud|features|help)
+    exec "$CODEX_BIN" "$@"
+    ;;
+esac
+
+MARKER=""
+if [ "${1:-}" = "--zellij-marker" ] && [ -n "${2:-}" ]; then
+  MARKER="$2"
+  shift 2
+fi
+
+if [ -z "$MARKER" ]; then
+  if command -v uuidgen >/dev/null 2>&1; then
+    MARKER="$(uuidgen)"
+  else
+    MARKER="$(date +%s)-$$"
+  fi
+  # Re-exec so the marker is part of the process command line that Zellij
+  # serializes. The resurrection hook later reads this exact marker.
+  exec "$0" --zellij-marker "$MARKER" "$@"
+fi
+
+case "$MARKER" in
+  *[!A-Za-z0-9-]*|'')
+    printf '%s\n' 'codex-zellij: invalid marker' >&2
+    exit 2
+    ;;
+esac
+
+mkdir -p "$MARKER_DIR"
+MARKER_FILE="$MARKER_DIR/$MARKER"
+
+if [ -s "$MARKER_FILE" ]; then
+  SESSION_ID="$(tr -d '\r\n' < "$MARKER_FILE")"
+  if [ -n "$SESSION_ID" ]; then
+    exec "$CODEX_BIN" resume "$SESSION_ID" --no-alt-screen
+  fi
+fi
+
+acquire_lock() {
+  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    lock_record="$(cat "$LOCK_DIR/owner" 2>/dev/null || true)"
+    owner_pid="${lock_record%% *}"
+    case "$owner_pid" in
+      ''|*[!0-9]*) ;;
+      *)
+        if ! kill -0 "$owner_pid" 2>/dev/null; then
+          rm -rf "$LOCK_DIR"
+        fi
+        ;;
+    esac
+    sleep 1
+  done
+}
+
+release_lock() {
+  lock_record="$(cat "$LOCK_DIR/owner" 2>/dev/null || true)"
+  lock_marker="${lock_record#* }"
+  if [ "$lock_marker" = "$MARKER" ]; then
+    rm -rf "$LOCK_DIR"
+  fi
+}
+
+line_count() {
+  if [ -f "$INDEX_FILE" ]; then
+    wc -l < "$INDEX_FILE" | tr -d ' '
+  else
+    printf '0\n'
+  fi
+}
+
+acquire_lock
+printf '%s %s\n' "$$" "$MARKER" > "$LOCK_DIR/owner"
+BEFORE="$(line_count)"
+TARGET_LINE=$((BEFORE + 1))
+
+# Keep registration serialized until the exact next index record appears.
+# Codex exposes no pane or process identifier in session_index.jsonl, so this
+# small critical section is what makes same-directory panes unambiguous.
+(
+  attempt=0
+  while [ "$attempt" -lt 60 ]; do
+    CURRENT="$(line_count)"
+    if [ "$CURRENT" -ge "$TARGET_LINE" ]; then
+      SESSION_ID="$(sed -n "${TARGET_LINE}p" "$INDEX_FILE" 2>/dev/null | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+      if [ -n "$SESSION_ID" ]; then
+        tmp_file="$MARKER_FILE.tmp.$$"
+        (umask 077; printf '%s\n' "$SESSION_ID" > "$tmp_file")
+        mv "$tmp_file" "$MARKER_FILE"
+      fi
+      break
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  release_lock
+) &
+WATCHER_PID=$!
+
+cleanup() {
+  kill "$WATCHER_PID" 2>/dev/null || true
+  wait "$WATCHER_PID" 2>/dev/null || true
+  release_lock
+}
+trap 'cleanup; exit 130' INT TERM HUP
+
+"$CODEX_BIN" --no-alt-screen "$@"
+STATUS=$?
+cleanup
+exit "$STATUS"
