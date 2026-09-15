@@ -1,5 +1,9 @@
 # codex-zellij-resume
 
+> **Experimental.** Codex does not create its local session-index record until
+> the first user message. See [Current limitation](#current-limitation) before
+> relying on this for multiple newly opened panes.
+
 Reliable per-pane [Codex CLI](https://developers.openai.com/codex/) session
 recovery for [Zellij](https://zellij.dev/). It keeps several Codex panes in
 the same working directory attached to their own conversations after a Zellij
@@ -65,6 +69,18 @@ record.
 
 The registration watcher waits until the first message creates the Codex
 session record; it does not expire while the interactive pane is still open.
+
+## Current limitation
+
+Because the registration lock must remain held until the first message, a
+second newly opened `codex-zellij` pane waits for the first pane to submit its
+first prompt. The mapping is correct, but this is not acceptable UX for a
+workflow that opens several empty Codex panes at once.
+
+Removing the lock would make same-directory panes ambiguous again. A complete
+solution needs either an explicit Codex API for creating a named thread before
+the TUI starts, or a PTY/app-server integration that correlates the first input
+event with its pane. Contributions and design notes are welcome.
 
 If a crash happens before Codex has written its index record, the pane starts a
 new Codex session instead of guessing with `--last`.
