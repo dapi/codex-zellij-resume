@@ -4,8 +4,6 @@ set -eu
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/codex-zellij-resume"
 MARKER_DIR="$STATE_DIR/markers"
-LOCK_DIR="$STATE_DIR/registration.lock"
-INDEX_FILE="${CODEX_HOME:-$HOME/.codex}/session_index.jsonl"
 CODEX_BIN="${CODEX_BIN:-codex}"
 
 usage() {
@@ -65,73 +63,13 @@ if [ -s "$MARKER_FILE" ]; then
   fi
 fi
 
-acquire_lock() {
-  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-    lock_record="$(cat "$LOCK_DIR/owner" 2>/dev/null || true)"
-    owner_pid="${lock_record%% *}"
-    case "$owner_pid" in
-      ''|*[!0-9]*) ;;
-      *)
-        if ! kill -0 "$owner_pid" 2>/dev/null; then
-          rm -rf "$LOCK_DIR"
-        fi
-        ;;
-    esac
-    sleep 1
-  done
-}
+PROXY="$(dirname "$0")/codex-zellij-pty.py"
+if ! command -v python3 >/dev/null 2>&1 || [ ! -f "$PROXY" ]; then
+  printf '%s\n' 'codex-zellij: Python 3 proxy is required' >&2
+  exit 1
+fi
 
-release_lock() {
-  lock_record="$(cat "$LOCK_DIR/owner" 2>/dev/null || true)"
-  lock_marker="${lock_record#* }"
-  if [ "$lock_marker" = "$MARKER" ]; then
-    rm -rf "$LOCK_DIR"
-  fi
-}
-
-line_count() {
-  if [ -f "$INDEX_FILE" ]; then
-    wc -l < "$INDEX_FILE" | tr -d ' '
-  else
-    printf '0\n'
-  fi
-}
-
-acquire_lock
-printf '%s %s\n' "$$" "$MARKER" > "$LOCK_DIR/owner"
-BEFORE="$(line_count)"
-TARGET_LINE=$((BEFORE + 1))
-WRAPPER_PID="$$"
-
-# Keep registration serialized until the exact next index record appears.
-# Codex exposes no pane or process identifier in session_index.jsonl, so this
-# small critical section is what makes same-directory panes unambiguous.
-(
-  while kill -0 "$WRAPPER_PID" 2>/dev/null; do
-    CURRENT="$(line_count)"
-    if [ "$CURRENT" -ge "$TARGET_LINE" ]; then
-      SESSION_ID="$(sed -n "${TARGET_LINE}p" "$INDEX_FILE" 2>/dev/null | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
-      if [ -n "$SESSION_ID" ]; then
-        tmp_file="$MARKER_FILE.tmp.$$"
-        (umask 077; printf '%s\n' "$SESSION_ID" > "$tmp_file")
-        mv "$tmp_file" "$MARKER_FILE"
-      fi
-      break
-    fi
-    sleep 1
-  done
-  release_lock
-) &
-WATCHER_PID=$!
-
-cleanup() {
-  kill "$WATCHER_PID" 2>/dev/null || true
-  wait "$WATCHER_PID" 2>/dev/null || true
-  release_lock
-}
-trap 'cleanup; exit 130' INT TERM HUP
-
-"$CODEX_BIN" --no-alt-screen "$@"
-STATUS=$?
-cleanup
-exit "$STATUS"
+# The proxy watches the first submitted prompt, not process startup. This lets
+# several empty panes open concurrently and serializes only the operation that
+# makes Codex create a session-index record.
+exec python3 "$PROXY" --zellij-marker "$MARKER" -- "$CODEX_BIN" --no-alt-screen "$@"

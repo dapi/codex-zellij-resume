@@ -1,8 +1,7 @@
 # codex-zellij-resume
 
-> **Experimental.** Codex does not create its local session-index record until
-> the first user message. See [Current limitation](#current-limitation) before
-> relying on this for multiple newly opened panes.
+> **Experimental.** This is a local integration that depends on Codex's
+> session-index format. Keep the regression test green when upgrading Codex.
 
 Reliable per-pane [Codex CLI](https://developers.openai.com/codex/) session
 recovery for [Zellij](https://zellij.dev/). It keeps several Codex panes in
@@ -67,20 +66,14 @@ given account while using this tool; a concurrent bare `codex` launch can
 otherwise enter the same index between the wrapper's snapshot and Codex's
 record.
 
-The registration watcher waits until the first message creates the Codex
-session record; it does not expire while the interactive pane is still open.
+The wrapper starts every empty pane immediately. Its Python standard-library
+PTY proxy acquires the registration lock only immediately before forwarding
+the first submitted prompt (`Enter`) to Codex. It snapshots the index while
+holding that lock, then records the next session ID. Concurrent empty panes
+therefore remain usable; only simultaneous first submissions briefly queue.
 
-## Current limitation
-
-Because the registration lock must remain held until the first message, a
-second newly opened `codex-zellij` pane waits for the first pane to submit its
-first prompt. The mapping is correct, but this is not acceptable UX for a
-workflow that opens several empty Codex panes at once.
-
-Removing the lock would make same-directory panes ambiguous again. A complete
-solution needs either an explicit Codex API for creating a named thread before
-the TUI starts, or a PTY/app-server integration that correlates the first input
-event with its pane. Contributions and design notes are welcome.
+The proxy ignores Enter on Codex's workspace-trust dialog, because that action
+does not create a conversation.
 
 If a crash happens before Codex has written its index record, the pane starts a
 new Codex session instead of guessing with `--last`.

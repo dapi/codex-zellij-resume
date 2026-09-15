@@ -15,6 +15,9 @@ if [ "${1:-}" = "resume" ]; then
   printf '%s\n' "$*" >> "$CALL_LOG"
   exit 0
 fi
+# A real Codex thread is recorded when the user submits its first prompt, not
+# when the TUI starts. Wait for the proxy to forward Enter.
+IFS= read -r _
 count=0
 if [ -f "$CODEX_HOME/session_index.jsonl" ]; then count="$(wc -l < "$CODEX_HOME/session_index.jsonl" | tr -d ' ')"; fi
 id="test-session-$((count + 1))"
@@ -23,10 +26,9 @@ sleep 2
 EOF
 chmod +x "$TMP/bin/fake-codex"
 
-XDG_STATE_HOME="$STATE" CODEX_HOME="$CODEX_HOME" CODEX_BIN="$TMP/bin/fake-codex" CALL_LOG="$TMP/calls" "$ROOT/bin/codex-zellij" &
+printf '\r' | XDG_STATE_HOME="$STATE" CODEX_HOME="$CODEX_HOME" CODEX_BIN="$TMP/bin/fake-codex" CALL_LOG="$TMP/calls" "$ROOT/bin/codex-zellij" &
 first=$!
-sleep 1
-XDG_STATE_HOME="$STATE" CODEX_HOME="$CODEX_HOME" CODEX_BIN="$TMP/bin/fake-codex" CALL_LOG="$TMP/calls" "$ROOT/bin/codex-zellij" &
+printf '\r' | XDG_STATE_HOME="$STATE" CODEX_HOME="$CODEX_HOME" CODEX_BIN="$TMP/bin/fake-codex" CALL_LOG="$TMP/calls" "$ROOT/bin/codex-zellij" &
 second=$!
 wait "$first"
 wait "$second"
